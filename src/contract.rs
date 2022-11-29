@@ -108,28 +108,15 @@ pub mod execute {
             amount: (state.counter_offer),
         });
 
-        //let mut res = Context::new();
-
-        //release counter offer to creator
-
-        //release collateral to sender
-
-        //delete the option
-
-        // STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
-        //     if info.sender != state.owner {
-        //         return Err(ContractError::Unauthorized {});
-        //     }
-        //     state.count = count;
-        //     Ok(state)
-        // })?;
-        // let rsp = Response::new();
-        // rsp.add_attribute("action", "reset");
-        // rsp.add_submessage(msg);
+        let mut msg2 = SubMsg::new(BankMsg::Send {
+            to_address: (state.owner.to_string()),
+            amount: (state.collateral),
+        });
 
         Ok(Response::new()
             .add_attribute("action", "reset")
-            .add_submessage(msg))
+            .add_submessage(msg)
+            .add_submessage(msg2))
     }
 
     pub fn execute_burn(
@@ -181,73 +168,121 @@ pub mod query {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-//     use cosmwasm_std::{coins, from_binary};
+#[cfg(test)]
+mod tests {
+    use crate::contract::execute::execute_transfer;
 
-//     #[test]
-//     fn proper_initialization() {
-//         let mut deps = mock_dependencies();
+    use super::*;
+    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+    use cosmwasm_std::{coins, from_binary};
 
-//         let msg = InstantiateMsg { counter_offer: 17 , expiry:123 };
-//         let info = mock_info("creator", &coins(1000, "earth"));
+    #[test]
+    fn proper_initialization() {
+        let mut deps = mock_dependencies();
 
-//         // we can just call .unwrap() to assert this was a success
-//         let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-//         assert_eq!(0, res.messages.len());
+        let msg = InstantiateMsg {
+            counter_offer: coins(40, "ETH"),
+            expiry: 100_000,
+        };
+        let info = mock_info("creator", &coins(1, "BTC"));
 
-//         // it worked, let's query the state
-//         let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-//         let value: GetCountResponse = from_binary(&res).unwrap();
-//         assert_eq!(17, value.count);
-//     }
+        // we can just call .unwrap() to assert this was a success
+        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+        assert_eq!(0, res.messages.len());
 
-//     #[test]
-//     fn increment() {
-//         let mut deps = mock_dependencies();
+        // it worked, let's query the state
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetState {}).unwrap();
+        let value: State = from_binary(&res).unwrap();
+        assert_eq!(100_000, value.expires);
+        assert_eq!("creator", value.creator);
+        assert_eq!("creator", value.owner);
+        assert_eq!(coins(1, "BTC"), value.collateral);
+        assert_eq!(coins(40, "ETH"), value.counter_offer);
+    }
 
-//         let msg = InstantiateMsg { count: 17 };
-//         let info = mock_info("creator", &coins(2, "token"));
-//         let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+    #[test]
+    fn transfer() {
+        let mut deps = mock_dependencies();
 
-//         // beneficiary can release it
-//         let info = mock_info("anyone", &coins(2, "token"));
-//         let msg = ExecuteMsg::Increment {};
-//         let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        let msg = InstantiateMsg {
+            counter_offer: coins(40, "ETH"),
+            expiry: 100_000,
+        };
+        let info = mock_info("creator", &coins(1, "BTC"));
 
-//         // should increase counter by 1
-//         let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-//         let value: GetCountResponse = from_binary(&res).unwrap();
-//         assert_eq!(18, value.count);
-//     }
+        // we can just call .unwrap() to assert this was a success
+        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+        assert_eq!(0, res.messages.len());
 
-//     #[test]
-//     fn reset() {
-//         let mut deps = mock_dependencies();
+        //CORRECT CREATOR
 
-//         let msg = InstantiateMsg { count: 17 };
-//         let info = mock_info("creator", &coins(2, "token"));
-//         let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+        let info = mock_info("creator", &coins(1, "ABC"));
+        let rsp = execute(
+            deps.as_mut(),
+            mock_env(),
+            info,
+            ExecuteMsg::Transfer {
+                recipient: Addr::unchecked("GPT"),
+            },
+        )
+        .unwrap();
 
-//         // beneficiary can release it
-//         let unauth_info = mock_info("anyone", &coins(2, "token"));
-//         let msg = ExecuteMsg::Reset { count: 5 };
-//         let res = execute(deps.as_mut(), mock_env(), unauth_info, msg);
-//         match res {
-//             Err(ContractError::Unauthorized {}) => {}
-//             _ => panic!("Must return unauthorized error"),
-//         }
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetState {}).unwrap();
+        let value: State = from_binary(&res).unwrap();
 
-//         // only the original creator can reset the counter
-//         let auth_info = mock_info("creator", &coins(2, "token"));
-//         let msg = ExecuteMsg::Reset { count: 5 };
-//         let _res = execute(deps.as_mut(), mock_env(), auth_info, msg).unwrap();
+        assert_eq!("GPT", value.owner);
 
-//         // should now be 5
-//         let res = query(deps.as_ref(), mock_env(), QueryMsg::GetCount {}).unwrap();
-//         let value: GetCountResponse = from_binary(&res).unwrap();
-//         assert_eq!(5, value.count);
-//     }
-// }
+        //Wrong creator
+        let info = mock_info("GPT", &coins(40, "ETH"));
+        let _rsp = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Execute {}).unwrap();
+    }
+
+    #[test]
+    fn execute_option() {
+        let mut deps = mock_dependencies();
+
+        let msg = InstantiateMsg {
+            counter_offer: coins(40, "ETH"),
+            expiry: 100_000,
+        };
+        let info = mock_info("creator", &coins(1, "BTC"));
+
+        // we can just call .unwrap() to assert this was a success
+        let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
+        assert_eq!(0, res.messages.len());
+
+        //Wrong creator
+        let info = mock_info("creator2", &coins(40, "ETH"));
+        let _rsp = execute(
+            deps.as_mut(),
+            mock_env(),
+            info,
+            ExecuteMsg::Execute {  },
+        )
+        .unwrap_err();
+
+ 
+        // CORRECT CREATOR WITH WRONG FUNDS
+        let info = mock_info("creator", &coins(38, "ETH"));
+        let _rsp = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Execute {}).unwrap_err();
+
+
+        //correct CREATOR WITH EXPIRED
+        let mut env = mock_env();
+        env.block.height = 300_000;
+
+        let info = mock_info("creator", &coins(40, "ETH"));
+        let _rsp = execute(deps.as_mut(), env, info, ExecuteMsg::Execute {}).unwrap_err();
+        
+        //CORRECT CREATOR WITH CORRECT FUNDS
+
+        let info = mock_info("creator", &coins(40, "ETH"));
+        let rsp = execute(deps.as_mut(), mock_env(), info, ExecuteMsg::Execute {}).unwrap();
+
+        assert_eq!(2, rsp.messages.len());
+        
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::GetState {}).unwrap();
+        
+        let _value: State = from_binary(&res).unwrap();
+    }
+}
